@@ -1,6 +1,8 @@
+import random
+import string
 from dataclasses import dataclass
 
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
@@ -27,7 +29,10 @@ DATA_DEFS = {
 
 
 def extract_seq2seq_features(
-    dataset_definition, tokenizer, max_length, target_max_length, dataset
+    dataset_definition, tokenizer, max_length, target_max_length, dataset,
+    transliteration: bool,
+    min_chars: int,
+    max_chars: int,
 ):
     hypothesis = dataset_definition.hypothesis_column
     premise = dataset_definition.premise_column
@@ -56,6 +61,37 @@ def extract_seq2seq_features(
 
         return encoded
 
+    if transliteration:
+        vocab = {}
+        for example in dataset['test']:
+            text = ' '.join([example[premise], example[hypothesis]])
+            for word in text.split():
+                while word not in vocab:       
+                    num_chars = random.randint(min_chars, max_chars)
+                    new_word = ''.join(random.sample(string.ascii_lowercase, num_chars))
+                    if word.istitle():
+                        new_word = new_word.title()
+                    if word.isupper():
+                        new_word = new_word.upper()
+                    if new_word in vocab: continue
+                    vocab[word] = new_word
+            
+    def _apply_transliteration(text: str):
+        return ' '.join([vocab[word] for word in text.split()])
+
+    def _modify_example(example):
+        example[premise] = _apply_transliteration(example[premise])
+        example[hypothesis] = _apply_transliteration(example[hypothesis])
+        return example
+    
+    #dataset['test'] = Dataset([_modify_example(example) for example in dataset['test']])
+    #for example in dataset['test']:
+    #    example.update(_modify_example(example))
+    dataset['test'] = dataset['test'].map(_modify_example, batched=False)
+
+    #for example in dataset['test']:
+    #    print(example)
+        
     features = dataset.map(
         _preprocess_sample, batched=False, remove_columns=[hypothesis, premise, label_column]
     )
@@ -76,6 +112,9 @@ class NLIDataModule(LightningDataModule):
         xlang_dataset_name: str = None,
         xlang_subdataset_name: str = None,
         xlang_validation_set: str = None,
+        transliteration: bool = False,
+        min_chars: int = 3,
+        max_chars: int = 7
     ):
         super().__init__()
 
@@ -103,6 +142,10 @@ class NLIDataModule(LightningDataModule):
 
         self.collate_fn = DataCollatorWithPadding(self.tokenizer, padding="max_length", max_length=self.max_length, return_tensors="pt")
 
+        self.transliteration = transliteration
+        self.min_chars = min_chars
+        self.max_chars = max_chars
+
     @property
     def train_size(self):
         return self.__train_size or 0
@@ -122,6 +165,9 @@ class NLIDataModule(LightningDataModule):
             self.max_length,
             self.target_max_length,
             dataset,
+            transliteration=self.transliteration,
+            min_chars=self.min_chars,
+            max_chars=self.max_chars,
         )
 
         self.__train_dataset_obj = features["train"]

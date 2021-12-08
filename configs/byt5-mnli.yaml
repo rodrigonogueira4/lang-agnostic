@@ -20,7 +20,11 @@ data:
   target_max_length: 5
   xlang_dataset_name: null
   xlang_subdataset_name: null
-  xlang_validation_set: null  
+  xlang_validation_set: null
+  transliteration: false
+  min_chars: 3
+  max_chars: 7
+  max_training_examples: 10000
 trainer:
   gpus: 1
   max_epochs: 5

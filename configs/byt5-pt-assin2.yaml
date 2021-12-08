@@ -13,7 +13,7 @@ model:
 data:
   tokenizer_name: "hugo/byt5-pt-v4"
   train_dataset: "assin2"
-  train_subdataset: null
+  train_subdataset: "None"
   validation_set: test
   batch_size: 2
   max_length: 1024
@@ -21,6 +21,9 @@ data:
   xlang_dataset_name: null
   xlang_subdataset_name: null
   xlang_validation_set: null
+  transliteration: true
+  min_chars: 2
+  max_chars: 7
 trainer:
   gpus: 1
   max_epochs: 5
