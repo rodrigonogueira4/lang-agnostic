@@ -18,23 +18,29 @@ data:
   batch_size: 2
   max_length: 1024
   target_max_length: 5
-  xlang_dataset_name: null
-  xlang_subdataset_name: null
-  xlang_validation_set: null
-  transliteration: false
+  xlang_dataset_name: "glue"
+  xlang_subdataset_name: mnli
+  xlang_validation_set: validation_matched
+  transliteration: true
   min_chars: 3
   max_chars: 7
-  max_training_examples: 10000
+  max_training_examples: null
+  max_validation_examples: 5000
 trainer:
   gpus: 1
   max_epochs: 5
-  val_check_interval: 0.2
+  val_check_interval: 0.1
   gradient_clip_val: 1.0
-  accumulate_grad_batches: 2
+  accumulate_grad_batches: 8
   precision: 32
   default_root_dir: "./checkpoints"
+  enable_checkpointing: true
   callbacks:
     - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+    - class_path: pytorch_lightning.callbacks.model_checkpoint.ModelCheckpoint
+      init_args:
+        dirpath: ./output/byt5-mnli/checkpoints
+        every_n_train_steps: 50000 # Opcional, por padrão ele salva no final da época
   logger:
     class_path: pytorch_lightning.loggers.NeptuneLogger
     init_args:

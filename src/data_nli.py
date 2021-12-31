@@ -30,9 +30,10 @@ DATA_DEFS = {
 
 def extract_seq2seq_features(
     dataset_definition, tokenizer, max_length, target_max_length, dataset,
-    transliteration: bool,
-    min_chars: int,
-    max_chars: int,
+    transliteration: bool = False,
+    min_chars: int = 3,
+    max_chars: int = 7,
+    validation_set: str = '',
 ):
     hypothesis = dataset_definition.hypothesis_column
     premise = dataset_definition.premise_column
@@ -63,7 +64,7 @@ def extract_seq2seq_features(
 
     if transliteration:
         vocab = {}
-        for example in dataset['test']:
+        for example in dataset[validation_set]:
             text = ' '.join([example[premise], example[hypothesis]])
             for word in text.split():
                 while word not in vocab:       
@@ -76,22 +77,16 @@ def extract_seq2seq_features(
                     if new_word in vocab: continue
                     vocab[word] = new_word
             
-    def _apply_transliteration(text: str):
-        return ' '.join([vocab[word] for word in text.split()])
+        def _apply_transliteration(text: str):
+            return ' '.join([vocab[word] for word in text.split()])
 
-    def _modify_example(example):
-        example[premise] = _apply_transliteration(example[premise])
-        example[hypothesis] = _apply_transliteration(example[hypothesis])
-        return example
-    
-    #dataset['test'] = Dataset([_modify_example(example) for example in dataset['test']])
-    #for example in dataset['test']:
-    #    example.update(_modify_example(example))
-    dataset['test'] = dataset['test'].map(_modify_example, batched=False)
-
-    #for example in dataset['test']:
-    #    print(example)
-        
+        def _modify_example(example):
+            example[premise] = _apply_transliteration(example[premise])
+            example[hypothesis] = _apply_transliteration(example[hypothesis])
+            return example
+            
+        dataset[validation_set] = dataset[validation_set].map(_modify_example, batched=False)
+   
     features = dataset.map(
         _preprocess_sample, batched=False, remove_columns=[hypothesis, premise, label_column]
     )
@@ -114,7 +109,9 @@ class NLIDataModule(LightningDataModule):
         xlang_validation_set: str = None,
         transliteration: bool = False,
         min_chars: int = 3,
-        max_chars: int = 7
+        max_chars: int = 7,
+        max_training_examples: int = None,
+        max_validation_examples: int = None,
     ):
         super().__init__()
 
@@ -140,11 +137,14 @@ class NLIDataModule(LightningDataModule):
         self.max_length = max_length
         self.target_max_length = target_max_length
 
-        self.collate_fn = DataCollatorWithPadding(self.tokenizer, padding="max_length", max_length=self.max_length, return_tensors="pt")
+        self.collate_fn = DataCollatorWithPadding(
+            self.tokenizer, padding="max_length", max_length=self.max_length, return_tensors="pt")
 
         self.transliteration = transliteration
         self.min_chars = min_chars
         self.max_chars = max_chars
+        self.max_training_examples = max_training_examples
+        self.max_validation_examples = max_validation_examples
 
     @property
     def train_size(self):
@@ -159,15 +159,19 @@ class NLIDataModule(LightningDataModule):
     def setup(self, stage):
         dataset = load_dataset(self.train_dataset, self.train_subdataset)
 
+        if self.max_training_examples:
+            dataset['train'] = dataset['train'].select(range(self.max_training_examples))
+            
+        if self.max_validation_examples:
+            dataset[self.validation_set] = dataset[self.validation_set].select(
+                range(self.max_validation_examples))
+            
         features = extract_seq2seq_features(
             self.data_def,
             self.tokenizer,
             self.max_length,
             self.target_max_length,
             dataset,
-            transliteration=self.transliteration,
-            min_chars=self.min_chars,
-            max_chars=self.max_chars,
         )
 
         self.__train_dataset_obj = features["train"]
@@ -179,12 +183,23 @@ class NLIDataModule(LightningDataModule):
                 self.xlang_dataset_name, self.xlang_subdataset_name
             )
 
+            if self.max_training_examples:
+                xlang_dataset['train'] = xlang_dataset['train'].select(range(self.max_training_examples))
+                
+            if self.max_validation_examples:
+                xlang_dataset[self.xlang_validation_set] = xlang_dataset[self.xlang_validation_set].select(
+                    range(self.max_validation_examples))
+
             xlang_features = extract_seq2seq_features(
                 self.xlang_data_def,
                 self.tokenizer,
                 self.max_length,
                 self.target_max_length,
                 xlang_dataset,
+                transliteration=self.transliteration,
+                min_chars=self.min_chars,
+                max_chars=self.max_chars,
+                validation_set=self.xlang_validation_set,
             )
 
             self.__cross_valid_dataset_obj = xlang_features[self.xlang_validation_set]
